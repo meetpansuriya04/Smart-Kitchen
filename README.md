@@ -1,1 +1,1 @@
-# Smart-Kitchen
+# hackathon-smart

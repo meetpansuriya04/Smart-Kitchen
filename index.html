@@ -1,0 +1,1287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Kitchen Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .status-indicator {
+            width: 10px; height: 10px; border-radius: 50%;
+            display: inline-block; margin-right: 8px;
+        }
+        .status-spoiled { background-color: #ef4444; }
+        .status-expiring { background-color: #f97316; }
+        .status-near-expiry { background-color: #eab308; }
+        .status-fresh { background-color: #22c55e; }
+        .loading-spinner {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6;
+            border-radius: 50%; width: 40px; height: 40px;
+            animation: spin 1s linear infinite; margin: 20px auto; display: none;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+
+        .highlight { animation: pulse 1s ease-in-out; }
+        .chart-hover { transition: transform 0.2s; cursor: pointer; }
+        .chart-hover:hover { transform: translateY(-3px); }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-6xl">
+        <header class="text-center mb-12">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">Smart Kitchen Manager</h1>
+            <p class="text-gray-600">AI-Powered Inventory & Waste Reduction</p>
+        </header>
+
+        <div class="bg-white rounded-lg shadow-lg p-6">
+            <!-- Upload Section -->
+            <div id="dropZone" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-blue-500">
+                <input type="file" id="imageInput" accept="image/*" class="hidden">
+                <div class="space-y-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <p class="text-gray-600">Drag & drop or click to upload inventory photo</p>
+                    <p class="text-sm text-gray-500">Supports: JPEG, PNG, WebP</p>
+                </div>
+            </div>
+
+            <!-- Analysis Results -->
+            <div class="mt-8 grid md:grid-cols-2 gap-6">
+                <div>
+                    <h3 class="text-lg font-semibold mb-3">Image Preview</h3>
+                    <img id="preview" class="hidden max-w-full h-auto rounded-lg shadow-md">
+                    <div class="loading-spinner" id="spinner"></div>
+                </div>
+                <div id="result" class="space-y-4">
+                    <!-- Results will update inventory directly -->
+                </div>
+            </div>
+
+            <!-- Dashboard -->
+            <div class="mt-8 grid md:grid-cols-3 gap-6">
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <h3 class="text-lg font-semibold mb-4">Inventory</h3>
+                    <!-- Add Item Form -->
+                    <div class="mb-4 p-3 bg-gray-50 rounded-lg">
+                        <h4 class="font-medium mb-2">Add New Item</h4>
+                        <form id="addItemForm" class="space-y-2">
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="text" name="name" placeholder="Item Name" required
+                                    class="px-3 py-2 border rounded">
+                                <input type="number" name="quantity" placeholder="Quantity" required
+                                    class="px-3 py-2 border rounded">
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="date" name="spoilage_date" required
+                                    class="px-3 py-2 border rounded">
+                                <input type="number" name="price" placeholder="Price" step="0.01"
+                                    class="px-3 py-2 border rounded">
+                            </div>
+                            <button type="submit" 
+                                class="w-full bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600">
+                                Add Item
+                            </button>
+                        </form>
+                    </div>
+                    <!-- Inventory List -->
+                    <div id="stockList" class="space-y-3"></div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <h3 class="text-lg font-semibold mb-4">Recipes</h3>
+                    <div id="recipeSuggestions" class="space-y-4"></div>
+                </div>
+                
+                <div class="bg-white rounded-lg shadow-lg p-4">
+                    <h3 class="text-lg font-semibold mb-4">Waste Stats</h3>
+                    <div id="wasteStats">
+                        <!-- Waste stats will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            
+
+            <!-- AI Stock Optimization -->
+            <div class="mt-6 bg-white rounded-lg shadow-lg p-4">
+                <h3 class="text-lg font-semibold mb-4">AI Stock Optimization</h3>
+                <button onclick="loadStockSuggestions()" 
+                        class="bg-purple-500 text-white px-4 py-2 rounded mb-4 hover:bg-purple-600">
+                    Generate Stock Suggestions
+                </button>
+                <div id="suggestionsLoader" class="loading-spinner" style="display: none;"></div>
+                <div id="stockSuggestions" class="space-y-4"></div>
+            </div>
+              <!-- Expiry Alerts -->
+              <div class="mt-6 bg-white rounded-lg shadow-lg p-4">
+                <h3 class="text-lg font-semibold mb-4">Expiry Alerts</h3>
+                <div id="expiryAlerts" class="space-y-2"></div>
+            </div>
+             <!-- Sales Report Section -->
+             <div class="mt-6 bg-white rounded-lg shadow-lg p-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Sales Report</h3>
+                    <button onclick="loadSalesReport()" 
+                            class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">
+                        Refresh Report
+                    </button>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="min-w-full bg-white">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left">Recipe</th>
+                                <th class="px-6 py-3 text-right">Quantity</th>
+                                <th class="px-6 py-3 text-right">Cost/Unit</th>
+                                <th class="px-6 py-3 text-right">Total Cost</th>
+                                <th class="px-6 py-3 text-right">Revenue</th>
+                                <th class="px-6 py-3 text-right">Profit</th>
+                                <th class="px-6 py-3 text-right">Avg. Profit</th>
+                            </tr>
+                        </thead>
+                        <tbody id="salesReportBody"></tbody>
+                        <tfoot id="salesReportFooter"></tfoot>
+                    </table>
+                </div>
+            </div>
+        </div>
+            <div class="mt-6 bg-white rounded-lg shadow-lg p-4">
+                <h3 class="text-lg font-semibold mb-4">Demand Predictions</h3>
+                <div class="mb-4">
+                    <canvas id="demandChart"></canvas>
+                </div>
+                <div id="predictionsList" class="space-y-2 mt-4">
+                    <!-- Predictions will be listed here -->
+                </div>
+            </div>
+          
+
+           
+        <div class="bg-white shadow-lg rounded-lg p-6 mb-8">
+            <h2 class="text-xl font-semibold mb-4">Waste Heatmap</h2>
+            <canvas id="wasteHeatmap" class="w-full h-96"></canvas>
+        </div>
+        
+        <!-- Loss-to-Profit Dashboard -->
+        <div class="mt-6 bg-white rounded-lg shadow-lg p-4">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold">Loss-to-Profit Dashboard</h3>
+                <div class="flex items-center gap-4">
+                    <select id="timeFilter" class="bg-white border rounded px-3 py-1 text-sm">
+                        <option value="3">Last 3 Months</option>
+                        <option value="6" selected>Last 6 Months</option>
+                        <option value="12">Last 12 Months</option>
+                    </select>
+                    <button data-action="refresh-stats"
+                            class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200">
+                        Refresh Stats
+                    </button>
+                </div>
+            </div>
+        
+            
+            <!-- Financial Impact Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-red-50 p-4 rounded-lg">
+                    <h4 class="text-sm font-medium text-red-800 mb-2">Total Waste Cost</h4>
+                    <p class="text-2xl font-bold text-red-600" id="totalWasteCost">₹0.00</p>
+                </div>
+                <div class="bg-yellow-50 p-4 rounded-lg">
+                    <h4 class="text-sm font-medium text-yellow-800 mb-2">Potential Loss at Risk</h4>
+                    <p class="text-2xl font-bold text-yellow-600" id="potentialLoss">₹0.00</p>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <h4 class="text-sm font-medium text-green-800 mb-2">Prevented Loss</h4>
+                    <p class="text-2xl font-bold text-green-600" id="preventedLoss">₹0.00</p>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            
+        </div>
+                <!-- Monthly Trends Chart -->
+                <div class="bg-white p-4 rounded-lg border">
+                    <h4 class="text-sm font-semibold mb-4">Monthly Waste Trends</h4>
+                    <canvas id="monthlyWasteChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-geo@4.1.1/dist/chartjs-chart-geo.min.js"></script>
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const imageInput = document.getElementById('imageInput');
+        const preview = document.getElementById('preview');
+        const spinner = document.getElementById('spinner');
+        let salesChart = null;
+        let wasteChart = null;
+        let monthlyWasteCtx = null;
+        // Loss-to-Profit Dashboard Functions
+let wasteTrendChart = null;
+let wasteContributorsChart = null;
+
+
+async function fetchWasteHeatmap() {
+        try {
+            const response = await fetch('/waste-heatmap');
+            const data = await response.json();
+
+            const ctx = document.getElementById('wasteHeatmap').getContext('2d');
+
+            const labels = data.map(item => item.station);
+            const values = data.map(item => item.waste);
+
+            if (window.wasteChart) {
+                window.wasteChart.destroy();
+            }
+
+            window.wasteChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Waste (in grams)',
+                        data: values,
+                        backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                        borderColor: 'rgba(255, 99, 132, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        x: { title: { display: true, text: 'Kitchen Stations' } },
+                        y: { title: { display: true, text: 'Waste (grams)' } }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error fetching waste heatmap:', error);
+        }
+    }
+
+    // Fetch the waste heatmap on load
+    window.addEventListener('load', fetchWasteHeatmap);
+async function loadLossProfitStats() {
+    try {
+        const button = document.querySelector('[data-action="refresh-stats"]');
+        button.disabled = true;
+        button.innerHTML = 'Refreshing...';
+
+        const timeFilter = document.getElementById('timeFilter').value;
+        const response = await fetch(`/loss-profit-stats?months=${timeFilter}`);
+        const data = await response.json();
+
+        // Update financial cards
+        updateFinancialCard('totalWasteCost', data.total_waste_cost);
+        updateFinancialCard('potentialLoss', data.potential_savings);
+        updateFinancialCard('preventedLoss', data.prevented_loss);
+
+        // Update charts
+        updateWasteTrendChart(data.monthly_trends);
+        updateWasteContributorsChart(data.top_waste_items);
+
+    } catch (error) {
+        console.error('Error loading stats:', error);
+        alert('Failed to load data: ' + error.message);
+    } finally {
+        const button = document.querySelector('[data-action="refresh-stats"]');
+        button.disabled = false;
+        button.innerHTML = 'Refresh Stats';
+    }
+}
+
+function updateFinancialCard(elementId, value) {
+    const element = document.getElementById(elementId);
+    element.classList.add('highlight');
+    element.textContent = `₹${value.toFixed(2)}`;
+    setTimeout(() => element.classList.remove('highlight'), 1000);
+}
+
+function updateWasteTrendChart(monthlyData) {
+    const ctx = document.getElementById('wasteTrendChart').getContext('2d');
+    if (wasteTrendChart) wasteTrendChart.destroy();
+
+    wasteTrendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: monthlyData.map(t => t.month),
+            datasets: [{
+                label: 'Monthly Waste Cost',
+                data: monthlyData.map(t => t.waste_cost),
+                borderColor: '#ef4444',
+                backgroundColor: '#fee2e2',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `₹${ctx.parsed.y.toFixed(2)} Waste`
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateWasteContributorsChart(items) {
+    const ctx = document.getElementById('wasteContributorsChart').getContext('2d');
+    if (wasteContributorsChart) wasteContributorsChart.destroy();
+
+    wasteContributorsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: items.map(i => i.item),
+            datasets: [{
+                label: 'Waste Cost',
+                data: items.map(i => i.cost),
+                backgroundColor: '#ef4444'
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `₹${ctx.raw.toFixed(2)}`
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Event Listeners
+document.addEventListener('DOMContentLoaded', () => {
+    const refreshButton = document.querySelector('[data-action="refresh-stats"]');
+    const timeFilter = document.getElementById('timeFilter');
+    
+    refreshButton.addEventListener('click', loadLossProfitStats);
+    timeFilter.addEventListener('change', loadLossProfitStats);
+    
+    // Initial load
+    loadLossProfitStats();
+});
+
+        // Drag & Drop Handling
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
+            dropZone.addEventListener(event, e => {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.classList.toggle('border-blue-500', ['dragenter', 'dragover'].includes(event));
+            });
+        });
+
+        dropZone.addEventListener('drop', e => handleFiles(e.dataTransfer.files));
+        dropZone.addEventListener('click', () => imageInput.click());
+        imageInput.addEventListener('change', e => handleFiles(e.target.files));
+
+        async function handleFiles(files) {
+            const file = files[0];
+            if (!file?.type.startsWith('image/')) return;
+            
+            preview.src = URL.createObjectURL(file);
+            preview.classList.remove('hidden');
+            processImage(file);
+        }
+
+        async function processImage(file) {
+            spinner.style.display = 'block';
+            try {
+                const formData = new FormData();
+                formData.append('image', file);
+                
+                const response = await fetch('/analyze', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                
+                if (data.error) throw new Error(data.error);
+                
+                // Update display with new inventory data
+                updateDisplay(data);
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+            } finally {
+                spinner.style.display = 'none';
+            }
+        }
+
+        async function sellRecipe(recipeName) {
+    try {
+        const response = await fetch('/sell-recipe', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ recipe: recipeName })
+        });
+
+        const data = await response.json();
+        if (data.error) {
+            throw new Error(data.error);
+        }
+
+        // Update all displays with new data
+        updateDisplay(data);
+        alert(`Successfully sold ${recipeName}`);
+    } catch (error) {
+        alert('Sale failed: ' + error.message);
+    }
+}
+        function updateDisplay(data) {
+    if (data.inventory) updateInventory(data.inventory);
+    if (data.recipes) updateRecipes(data.recipes);
+    if (data.waste_stats) updateWasteStats(data.waste_stats);
+    if (data.expiry_alerts) updateExpiryAlerts(data.expiry_alerts);
+}
+
+        function updateInventory(inventory) {
+            const stockList = Object.entries(inventory).map(([name, details]) => {
+                const status = getStatus(details.spoilage_date);
+                return `
+                    <div class="flex justify-between items-center p-2 rounded
+                        ${status === 'spoiled' ? 'bg-red-50' :
+                          status === 'expiring' ? 'bg-orange-50' :
+                          status === 'near-expiry' ? 'bg-yellow-50' : ''}">
+                        <div class="flex items-center">
+                            <span class="status-indicator status-${status}"></span>
+                            <span class="font-medium">${name}</span>
+                            <span class="text-sm text-gray-600 ml-2">(${details.quantity})</span>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button onclick="editItem('${name}', ${details.quantity}, '${details.spoilage_date}', ${details.price})"
+                                    class="text-blue-500 hover:text-blue-700">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                </svg>
+                            </button>
+                            <button onclick="deleteInventoryItem('${name}')"
+                                    class="text-red-500 hover:text-red-700">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                            </button>
+                            <span class="text-sm ${
+                                status === 'spoiled' ? 'text-red-600' :
+                                status === 'expiring' ? 'text-orange-600' :
+                                status === 'near-expiry' ? 'text-yellow-600' : 'text-gray-500'
+                            }">
+                                ${new Date(details.spoilage_date).toLocaleDateString()}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            document.getElementById('stockList').innerHTML = stockList;
+        }
+
+        function updateRecipes(recipes) {
+            document.getElementById('recipeSuggestions').innerHTML = recipes.map(recipe => `
+                <div class="p-3 border rounded-lg bg-white shadow-sm">
+                    <div class="flex justify-between items-center mb-2">
+                        <h4 class="font-semibold">${recipe.name}</h4>
+                        <button onclick="sellRecipe('${recipe.name}')" 
+                                class="bg-green-500 text-white px-3 py-1 rounded text-sm hover:bg-green-600">
+                            Sell
+                        </button>
+                    </div>
+                    <div class="text-sm space-y-1">
+                        <p>Cost: ₹${recipe.cost.toFixed(2)}</p>
+                        <p>Profit: ₹${recipe.profit.toFixed(2)}</p>
+                        <p class="text-blue-600">Priority: ${recipe.spoilage_priority}</p>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateWasteStats(stats) {
+    if (!stats) {
+        console.error('No waste stats data received');
+        return;
+    }
+
+    const wasteStatsDiv = document.getElementById('wasteStats');
+    wasteStatsDiv.innerHTML = `
+        <div class="text-center p-4 bg-gray-50 rounded-lg">
+            <div class="mb-4">
+                <p class="text-lg font-semibold mb-2">Items at Risk</p>
+                <p class="text-xl text-orange-500">${stats.items_at_risk}</p>
+            </div>
+            <div>
+                <p class="text-lg font-semibold mb-2">Potential Savings</p>
+                <p class="text-2xl text-green-600">₹${stats.potential_savings.toFixed(2)}</p>
+            </div>
+        </div>
+    `;
+}
+
+        function updateExpiryAlerts(alerts) {
+            document.getElementById('expiryAlerts').innerHTML = alerts.map(alert => `
+                <div class="p-2 rounded-lg flex justify-between items-center
+                    ${alert.status === 'spoiled' ? 'bg-red-100' :
+                      alert.status === 'expiring' ? 'bg-orange-100' : 'bg-yellow-100'}">
+                    <div>
+                        <span class="font-medium">${alert.name}</span>
+                        <span class="text-sm ml-2">(${alert.quantity} left)</span>
+                    </div>
+                    <span class="text-sm ${
+                        alert.status === 'spoiled' ? 'text-red-600' :
+                        alert.status === 'expiring' ? 'text-orange-600' : 'text-yellow-600'
+                    }">
+                        ${alert.status.replace('-', ' ')} (${Math.abs(alert.days_left)}d)
+                    </span>
+                </div>
+            `).join('');
+        }
+
+        function getStatus(dateString) {
+            const daysLeft = Math.floor((new Date(dateString) - Date.now()) / 86400000);
+            return daysLeft < 0 ? 'spoiled' :
+                   daysLeft <= 2 ? 'expiring' :
+                   daysLeft <= 5 ? 'near-expiry' : 'fresh';
+        }
+
+        // Sales Chart
+        async function initSalesChart() {
+    try {
+        const response = await fetch('/stacked-sales');
+        const {dates, recipes, data} = await response.json();
+        
+        const ctx = document.getElementById('salesChart').getContext('2d');
+        if (salesChart) salesChart.destroy();
+
+        // Generate dataset for each recipe
+        const datasets = recipes.map(recipe => ({
+            label: recipe,
+            data: dates.map(date => data[date].get(recipe, 0)),
+            backgroundColor: getRecipeColor(recipe),
+            stack: 'Stack 0'
+        }));
+
+        salesChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: dates,
+                datasets: datasets
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'top' },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y || 0;
+                                return `${label}: ₹${value.toFixed(2)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: { 
+                        stacked: true,
+                        type: 'time',
+                        time: { unit: 'day' }
+                    },
+                    y: { 
+                        stacked: true,
+                        beginAtZero: true,
+                        title: { 
+                            display: true, 
+                            text: 'Total Sales (₹)' 
+                        }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Error loading sales data:', error);
+    }
+}
+
+// Color generator for recipes
+function getRecipeColor(recipeName) {
+    const colorMap = {
+        'Bombay Vadapav (Oil)': '#FF6384',
+        'Jain Vadapav (Oil)': '#36A2EB',
+        'Dabeli (Butter)': '#FFCE56',
+        'Cheese Muskabun': '#4BC0C0',
+        'Cheese Bhel': '#9966FF',
+        'Garlic Cheese Baked Roll': '#FF9F40'
+    };
+    return colorMap[recipeName] || '#'+Math.floor(Math.random()*16777215).toString(16);
+}
+        // Stock Suggestions
+        async function loadStockSuggestions() {
+            const loader = document.getElementById('suggestionsLoader');
+            const container = document.getElementById('stockSuggestions');
+            try {
+                loader.style.display = 'block';
+                container.innerHTML = '';
+                
+                const response = await fetch('/stock-suggestions');
+                const data = await response.json();
+                
+                if (data.error) throw new Error(data.error);
+                
+                let html = '';
+                
+                if (data.waste_reduction_tips?.length > 0) {
+                    html += `
+                        <div class="mb-6">
+                            <h4 class="font-semibold text-lg mb-3">Actionable Waste Reduction</h4>
+                            <div class="space-y-3">
+                                ${data.waste_reduction_tips.map(tip => `
+                                    <div class="p-3 bg-blue-50 rounded-lg flex items-start border border-blue-200">
+                                        <span class="mr-3 text-red-500">⚠️</span>
+                                        <p class="text-sm text-blue-800 flex-1">${tip}</p>
+                                `).join('')}
+                            </div>
+                        </div>`;
+                }
+
+                if (data.items?.length > 0) {
+                    // Sort by urgency: high > medium > low
+                    const priorityOrder = {high: 3, medium: 2, low: 1};
+                    data.items.sort((a, b) => 
+                        priorityOrder[b.reorder_urgency] - priorityOrder[a.reorder_urgency] ||
+                        b.current_stock - a.current_stock
+                    );
+
+                    html += `
+                        <h4 class="font-semibold text-lg mb-3">Priority Stock Recommendations</h4>
+                        <div class="space-y-3">
+                            ${data.items.map(item => `
+                                <div class="p-4 border rounded-lg bg-white hover:shadow-md transition-shadow">
+                                    <div class="flex justify-between items-start mb-2">
+                                        <div>
+                                            <span class="font-medium">${item.name}</span>
+                                            <span class="text-sm text-gray-600 ml-2">
+                                                (Current: ${item.current_stock}, Suggested: ${item.suggested_stock})
+                                            </span>
+                                        </div>
+                                        <span class="text-sm px-2 py-1 rounded 
+                                            ${item.reorder_urgency === 'high' ? 'bg-red-100 text-red-800' :
+                                              item.reorder_urgency === 'medium' ? 'bg-yellow-100 text-yellow-800' :
+                                              'bg-green-100 text-green-800'}">
+                                            ${item.reorder_urgency} priority
+                                        </span>
+                                    </div>
+                                    <p class="text-sm text-gray-600">${item.reason}</p>
+                                </div>
+                            `).join('')}
+                        </div>`;
+                }
+
+                container.innerHTML = html || '<p class="text-gray-500">No suggestions available</p>';
+                
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="p-3 bg-red-50 text-red-700 rounded-lg">
+                        Error loading suggestions: ${error.message}
+                    </div>`;
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+
+        async function loadSalesReport() {
+    try {
+        const response = await fetch('/sales-report');
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        const tbody = document.getElementById('salesReportBody');
+        const tfoot = document.getElementById('salesReportFooter');
+        
+        // Populate table body
+        tbody.innerHTML = data.items.map(item => `
+            <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4">${item.recipe}</td>
+                <td class="px-6 py-4 text-right">${item.quantity}</td>
+                <td class="px-6 py-4 text-right">₹${item.cost_per_unit}</td>
+                <td class="px-6 py-4 text-right">₹${item.total_cost}</td>
+                <td class="px-6 py-4 text-right">₹${item.total_revenue}</td>
+                <td class="px-6 py-4 text-right">₹${item.total_profit}</td>
+                <td class="px-6 py-4 text-right">₹${item.average_profit}</td>
+            </tr>
+        `).join('');
+        
+        // Add summary row
+        const summary = data.summary;
+        tfoot.innerHTML = `
+            <tr class="bg-gray-50 font-semibold">
+                <td class="px-6 py-4">Total</td>
+                <td class="px-6 py-4 text-right">${summary.total_sales}</td>
+                <td class="px-6 py-4 text-right">₹${summary.average_cost}</td>
+                <td class="px-6 py-4 text-right">₹${summary.total_cost}</td>
+                <td class="px-6 py-4 text-right">₹${summary.total_revenue}</td>
+                <td class="px-6 py-4 text-right">₹${summary.total_profit}</td>
+                <td class="px-6 py-4 text-right">${summary.profit_margin}%</td>
+            </tr>
+        `;
+        
+    } catch (error) {
+        console.error('Error loading sales report:', error);
+        alert('Failed to load sales report: ' + error.message);
+    }
+}
+
+// Add this line after your other initialization code
+document.addEventListener('DOMContentLoaded', loadSalesReport);
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+    loadSalesReport();
+    initSalesChart();
+});
+
+async function loadDemandPredictions() {
+    try {
+        const response = await fetch('/demand-prediction');
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        // Create the chart
+        const ctx = document.getElementById('demandChart').getContext('2d');
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [...data.historical.months, 'Next Month'],
+                datasets: Object.entries(data.historical.data).map(([recipe, values]) => ({
+                    label: recipe,
+                    data: [...values, data.predictions[recipe]],
+                    borderColor: getRecipeColor(recipe),
+                    backgroundColor: getRecipeColor(recipe) + '20',
+                    tension: 0.4,
+                    fill: true
+                }))
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    },
+                    title: {
+                        display: true,
+                        text: 'Monthly Demand Trends & Predictions'
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (context) => {
+                                const label = context.dataset.label || '';
+                                const value = context.parsed.y || 0;
+                                return `${label}: ${value} units`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Number of Orders'
+                        }
+                    }
+                }
+            }
+        });
+        
+        // Display predictions list
+        const predictionsList = document.getElementById('predictionsList');
+        predictionsList.innerHTML = Object.entries(data.predictions)
+            .sort((a, b) => b[1] - a[1])
+            .map(([recipe, prediction]) => `
+                <div class="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
+                    <span class="font-medium">${recipe}</span>
+                    <span class="text-blue-600">${prediction} orders predicted next month</span>
+                </div>
+            `).join('');
+            
+    } catch (error) {
+        console.error('Error loading demand predictions:', error);
+        document.getElementById('predictionsList').innerHTML = `
+            <div class="p-3 bg-red-50 text-red-700 rounded-lg">
+                Error loading predictions: ${error.message}
+            </div>`;
+    }
+}
+
+// Add to your initialization code
+document.addEventListener('DOMContentLoaded', () => {
+    // ...existing initialization code...
+    loadDemandPredictions();
+});
+
+async function loadLossProfitStats() {
+    try {
+        // Show loading state
+        const button = document.querySelector('[data-action="refresh-stats"]');
+        button.disabled = true;
+        button.innerHTML = 'Refreshing...';
+
+        const response = await fetch('/loss-profit-stats');
+        const data = await response.json();
+        
+        if (data.error) throw new Error(data.error);
+        
+        // Update financial cards with default 0 if no value
+        document.getElementById('totalWasteCost').textContent = 
+            `₹${(data.total_waste_cost || 0).toFixed(2)}`;
+        document.getElementById('potentialLoss').textContent = 
+            `₹${(data.potential_savings || 0).toFixed(2)}`;
+        document.getElementById('preventedLoss').textContent = 
+            `₹${(data.prevented_loss || 0).toFixed(2)}`;
+
+        // Get the canvas context
+        const ctx = document.getElementById('monthlyWasteChart').getContext('2d');
+
+        // Destroy existing chart if it exists
+        if (lossProfitChart) {
+            lossProfitChart.destroy();
+        }
+
+        // Ensure we have valid data for the chart
+        const monthlyData = data.monthly_trends || [];
+        const sortedData = monthlyData.sort((a, b) => new Date(a.month) - new Date(b.month));
+
+        // Create new chart
+        lossProfitChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: sortedData.map(t => t.month),
+                datasets: [{
+                    label: 'Monthly Waste Cost',
+                    data: sortedData.map(t => t.waste_cost || 0),
+                    borderColor: '#ef4444',
+                    backgroundColor: '#fee2e2',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                return `Waste Cost: ₹${context.parsed.y.toFixed(2)}`;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'category',
+                        time: {
+                            unit: 'month'
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        title: {
+                            display: true,
+                            text: 'Waste Cost (₹)'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Update top waste items
+        const topWasteDiv = document.getElementById('topWasteItems');
+        const topItems = data.top_waste_items || [];
+        topWasteDiv.innerHTML = topItems.map(item => `
+            <div class="flex justify-between items-center p-2 bg-gray-50 rounded">
+                <span class="font-medium">${item.item}</span>
+                <span class="text-red-600">₹${(item.cost || 0).toFixed(2)}</span>
+            </div>
+        `).join('') || '<div class="text-gray-500">No waste data available</div>';
+
+    } catch (error) {
+        console.error('Error loading loss-profit stats:', error);
+        alert('Failed to load loss-profit statistics: ' + error.message);
+    } finally {
+        // Reset button state
+        const button = document.querySelector('[data-action="refresh-stats"]');
+        button.disabled = false;
+        button.innerHTML = 'Refresh Stats';
+    }
+}
+
+// Update the initialization
+document.addEventListener('DOMContentLoaded', () => {
+    // Remove duplicate event listeners
+    const refreshButton = document.querySelector('[data-action="refresh-stats"]');
+    refreshButton.removeEventListener('click', loadLossProfitStats);
+    refreshButton.addEventListener('click', loadLossProfitStats);
+    
+    // Initial load
+    loadLossProfitStats();
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    // ... existing initialization code ...
+    
+    // Initialize Loss-to-Profit Dashboard
+    loadLossProfitStats();
+    
+    // Add click event listener for the refresh button
+    document.querySelector('[data-action="refresh-stats"]').addEventListener('click', loadLossProfitStats);
+});
+
+        let lossProfitChart = null;
+    let topWasteChart = null;
+
+    async function loadLossProfitStats() {
+        try {
+            const button = document.querySelector('[data-action="refresh-stats"]');
+            button.disabled = true;
+            button.innerHTML = 'Refreshing...';
+
+            const timeFilter = document.getElementById('timeFilter').value;
+            const response = await fetch(`/loss-profit-stats?months=${timeFilter}`);
+            const data = await response.json();
+            
+            // Update financial cards with animation
+            updateFinancialCard('totalWasteCost', data.total_waste_cost);
+            updateFinancialCard('potentialLoss', data.potential_savings);
+            updateFinancialCard('preventedLoss', data.prevented_loss);
+
+            // Update charts
+            updateTrendChart(data.monthly_trends);
+            updateTopWasteChart(data.top_waste_items);
+
+        } catch (error) {
+            showError(error);
+        } finally {
+            button.disabled = false;
+            button.innerHTML = 'Refresh Stats';
+        }
+    }
+
+    function updateFinancialCard(elementId, value) {
+        const element = document.getElementById(elementId);
+        element.classList.add('highlight');
+        element.textContent = `₹${value.toFixed(2)}`;
+        setTimeout(() => element.classList.remove('highlight'), 1000);
+    }
+
+    function updateTrendChart(monthlyData) {
+        const ctx = document.getElementById('monthlyWasteChart').getContext('2d');
+        if (lossProfitChart) lossProfitChart.destroy();
+
+        lossProfitChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: monthlyData.map(t => t.month),
+                datasets: [{
+                    label: 'Monthly Waste Cost',
+                    data: monthlyData.map(t => t.waste_cost),
+                    borderColor: '#ef4444',
+                    backgroundColor: '#fee2e2',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `₹${ctx.parsed.y.toFixed(2)} Waste`
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function updateTopWasteChart(items) {
+        const ctx = document.getElementById('topWasteChart').getContext('2d');
+        if (topWasteChart) topWasteChart.destroy();
+
+        topWasteChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: items.map(i => i.item),
+                datasets: [{
+                    label: 'Waste Cost',
+                    data: items.map(i => i.cost),
+                    backgroundColor: '#ef4444'
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `₹${ctx.raw.toFixed(2)}`
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Add event listeners
+    document.getElementById('monthlyWasteChart').addEventListener('click', (e) => {
+        const [chart] = lossProfitChart.getElementsAtEventForMode(
+            e, 'nearest', { intersect: true }, true
+        );
+        if (chart.length) {
+            const month = lossProfitChart.data.labels[chart[0].index];
+            alert(`Selected month: ${month}`);
+        }
+    });
+
+    document.querySelector('[data-action="refresh-stats"]').addEventListener('click', loadLossProfitStats);
+    document.getElementById('timeFilter').addEventListener('change', loadLossProfitStats);
+
+    // Initial load
+    loadLossProfitStats();
+
+    // Helper functions for chart updates
+function updateWasteTrendChart(monthlyData) {
+    const ctx = document.getElementById('monthlyWasteChart').getContext('2d');
+    
+    // Destroy existing chart
+    if (lossProfitChart) {
+        lossProfitChart.destroy();
+    }
+
+    lossProfitChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: monthlyData.map(t => t.month),
+            datasets: [{
+                label: 'Monthly Waste Cost',
+                data: monthlyData.map(t => t.waste_cost || 0),
+                borderColor: '#ef4444',
+                backgroundColor: '#fee2e2',
+                fill: true,
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return `Waste Cost: ₹${context.parsed.y.toFixed(2)}`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    title: {
+                        display: true,
+                        text: 'Waste Cost (₹)'
+                    }
+                }
+            }
+        }
+    });
+}
+
+function updateFinancialCard(elementId, value) {
+    const element = document.getElementById(elementId);
+    element.classList.add('highlight');
+    element.textContent = `₹${(value || 0).toFixed(2)}`;
+    setTimeout(() => element.classList.remove('highlight'), 1000);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Remove any existing listeners
+    const refreshButton = document.querySelector('[data-action="refresh-stats"]');
+    const timeFilter = document.getElementById('timeFilter');
+    
+    refreshButton.removeEventListener('click', loadLossProfitStats);
+    timeFilter.removeEventListener('change', loadLossProfitStats);
+    
+    // Add new listeners
+    refreshButton.addEventListener('click', loadLossProfitStats);
+    timeFilter.addEventListener('change', loadLossProfitStats);
+    
+    // Initial load
+    loadLossProfitStats();
+});
+
+// Add these new functions for inventory management
+async function addInventoryItem(event) {
+    event.preventDefault();
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    try {
+        const response = await fetch('/inventory/add', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: formData.get('name'),
+                quantity: parseFloat(formData.get('quantity')),
+                spoilage_date: formData.get('spoilage_date'),
+                price: parseFloat(formData.get('price'))
+            })
+        });
+        
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        
+        updateDisplay(data);
+        form.reset();
+        alert('Item added successfully!');
+    } catch (error) {
+        alert('Error adding item: ' + error.message);
+    }
+}
+
+async function updateInventoryItem(name, updates) {
+    try {
+        const response = await fetch('/inventory/update', {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                name: name,
+                ...updates
+            })
+        });
+        
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        
+        updateDisplay(data);
+        alert('Item updated successfully!');
+    } catch (error) {
+        alert('Error updating item: ' + error.message);
+    }
+}
+
+async function deleteInventoryItem(name) {
+    if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+    
+    try {
+        const response = await fetch('/inventory/delete', {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ name: name })
+        });
+        
+        const data = await response.json();
+        if (data.error) throw new Error(data.error);
+        
+        updateDisplay(data);
+        alert('Item deleted successfully!');
+    } catch (error) {
+        alert('Error deleting item: ' + error.message);
+    }
+}
+
+// Update the existing updateInventory function
+function updateInventory(inventory) {
+    const stockList = Object.entries(inventory).map(([name, details]) => {
+        const status = getStatus(details.spoilage_date);
+        return `
+            <div class="flex justify-between items-center p-2 rounded
+                ${status === 'spoiled' ? 'bg-red-50' :
+                  status === 'expiring' ? 'bg-orange-50' :
+                  status === 'near-expiry' ? 'bg-yellow-50' : ''}">
+                <div class="flex items-center">
+                    <span class="status-indicator status-${status}"></span>
+                    <span class="font-medium">${name}</span>
+                    <span class="text-sm text-gray-600 ml-2">(${details.quantity})</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <button onclick="editItem('${name}', ${details.quantity}, '${details.spoilage_date}', ${details.price})"
+                            class="text-blue-500 hover:text-blue-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                        </svg>
+                    </button>
+                    <button onclick="deleteInventoryItem('${name}')"
+                            class="text-red-500 hover:text-red-700">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                    </button>
+                    <span class="text-sm ${
+                        status === 'spoiled' ? 'text-red-600' :
+                        status === 'expiring' ? 'text-orange-600' :
+                        status === 'near-expiry' ? 'text-yellow-600' : 'text-gray-500'
+                    }">
+                        ${new Date(details.spoilage_date).toLocaleDateString()}
+                    </span>
+                </div>
+            </div>
+        `;
+    }).join('');
+    document.getElementById('stockList').innerHTML = stockList;
+}
+
+function editItem(name, quantity, spoilageDate, price) {
+    const newName = prompt('Enter new name (or press OK to keep current):', name);
+    if (newName === null) return;
+    
+    const newQuantity = prompt('Enter new quantity:', quantity);
+    if (newQuantity === null) return;
+    
+    const newSpoilageDate = prompt('Enter new spoilage date (YYYY-MM-DD):', spoilageDate.split('T')[0]);
+    if (newSpoilageDate === null) return;
+    
+    const newPrice = prompt('Enter new price:', price);
+    if (newPrice === null) return;
+    
+    updateInventoryItem(name, {
+        new_name: newName.trim() || name,
+        quantity: parseFloat(newQuantity),
+        spoilage_date: newSpoilageDate,
+        price: parseFloat(newPrice)
+    });
+}
+
+// Add event listener for the add item form
+document.getElementById('addItemForm').addEventListener('submit', addInventoryItem);
+    </script>
+</body>
+</html>
